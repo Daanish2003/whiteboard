@@ -71,8 +71,10 @@ export default function DrawingTools() {
 
    return (
     <div>
-      <div style={{ position: "fixed" }}>
-
+      <div className="fixed">
+        <button onClick={() => setElements([])}>
+          Clear
+        </button>
         <input
           type="radio"
           name="line"
