@@ -1,8 +1,10 @@
 "use client"
+
+import { useHistory } from "@/hooks/useHistory";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import rough from "roughjs"
 
-type ElementType = {
+export type ElementType = {
   id: number;
   x1: number;
   y1: number;
@@ -23,7 +25,7 @@ enum Tools {
 }
 
 export default function DrawingTools() {
-  const [elements, setElements] = useState<ElementType[]>([]);
+  const {elements, setElements, undo, redo} = useHistory([]);
   const [action, setAction] = useState("none");
   const [tool, setTool] = useState<Tools>(Tools.Line);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -182,6 +184,27 @@ export default function DrawingTools() {
     });
   }, [elements]);
 
+  useEffect(() => {
+    const undoRedoFunction = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey){
+        if (event.key === "z") {
+          if (event.shiftKey) {
+            redo();
+          } else {
+            undo();
+          }
+        } else if(event.key === "y") {
+          redo();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", undoRedoFunction);
+     return () => {
+      document.removeEventListener("keydown", undoRedoFunction);
+     }
+  }, [undo, redo])
+
   const updateElement = (
     id: number, 
     x1: number, 
@@ -194,7 +217,7 @@ export default function DrawingTools() {
 
     const elementsCopy = [...elements];
       elementsCopy[id] = updateElement;
-      setElements(elementsCopy);
+      setElements(elementsCopy,);
   }
   
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -205,6 +228,7 @@ export default function DrawingTools() {
           const offsetX = clientX - element.x1;
           const offsetY = clientY - element.y1;
           setSelectedElement({ ...element, offsetX, offsetY });
+          setElements((prevState) => prevState)
             if(element.position === "inside")
             {
               setAction("moving");
@@ -266,12 +290,12 @@ export default function DrawingTools() {
 
   }
   const handleMouseUp = () => {
-    if(action === "drawing" || action === "resizing") {
-      if (selectedElement) {
-        const index = selectedElement.id;
-        const { id, type } = elements[index];
+    if (selectedElement) {
+      const index = selectedElement.id;
+      const { id, type } = elements[index];
+      if (action === "drawing" || action === "resizing") {
         const { x1, y1, x2, y2 } = adjustElementCoordinates(elements[index]);
-        updateElement(id, x1, y1, x2, y2, type)
+        updateElement(id, x1, y1, x2, y2, type);
       }
     }
     setAction("none");
@@ -311,6 +335,10 @@ export default function DrawingTools() {
         />
 
         <label htmlFor="rectangle">rectangle</label>
+      </div>
+      <div>
+        <button onClick={undo}>Undo</button>
+        <button onClick={redo}>Redo</button>
       </div>
       <canvas
         ref={canvasRef}
