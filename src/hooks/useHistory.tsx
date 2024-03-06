@@ -6,8 +6,7 @@ export const useHistory = (initialState: ElementType[]) => {
     const [history, setHistory] = useState([initialState])
     const setState = (
         action: ElementType[] | 
-        ((current: ElementType[]) => ElementType[]
-        )
+        ((current: ElementType[]) => ElementType[])
         , overwrite = false) => {
          const newState = typeof action === "function" ? action(history[index]) : action;
         if(overwrite) {
@@ -23,6 +22,6 @@ export const useHistory = (initialState: ElementType[]) => {
 
     const undo = () => index > 0 && setIndex((prevState) => prevState - 1)
     const redo = () => index < history.length - 1  && setIndex((prevState) => prevState + 1)
-  return {elements:history[index], setElements: setState, undo, redo}
+  return { elements: history[index], setElements: setState, undo, redo }
 }
 

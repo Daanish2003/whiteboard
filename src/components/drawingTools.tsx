@@ -186,24 +186,25 @@ export default function DrawingTools() {
 
   useEffect(() => {
     const undoRedoFunction = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey){
+      if (event.ctrlKey || event.metaKey) {
         if (event.key === "z") {
           if (event.shiftKey) {
             redo();
           } else {
             undo();
           }
-        } else if(event.key === "y") {
-          redo();
+        } else if (event.key === "y") {
+        } else {
+          undo();
         }
       }
     };
 
     document.addEventListener("keydown", undoRedoFunction);
-     return () => {
+    return () => {
       document.removeEventListener("keydown", undoRedoFunction);
-     }
-  }, [undo, redo])
+    };
+  }, [undo, redo]);
 
   const updateElement = (
     id: number, 
@@ -217,7 +218,7 @@ export default function DrawingTools() {
 
     const elementsCopy = [...elements];
       elementsCopy[id] = updateElement;
-      setElements(elementsCopy,);
+      setElements(elementsCopy, true);
   }
   
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -336,7 +337,7 @@ export default function DrawingTools() {
 
         <label htmlFor="rectangle">rectangle</label>
       </div>
-      <div>
+      <div className="fixed z-2 bottom-0 p-10">
         <button onClick={undo}>Undo</button>
         <button onClick={redo}>Redo</button>
       </div>
