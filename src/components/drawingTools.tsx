@@ -10,17 +10,22 @@ type ElementType = {
   roughElement: any;
 }
 
+enum Tools {
+  Selection = "selection",
+  Line = "line",
+  Rectangle = "rectangle",
+  Ellipse = "ellipse",
+}
+
 export default function DrawingTools() {
   const [elements, setElements] = useState<ElementType[]>([]);
-  const [drawing, setDrawing] = useState(false);
-  const [elementType, setElementType] = useState<
-    "line" | "rectangle" | "circle"
-  >("line");
+  const [action, setAction] = useState("none");
+  const [tool, setTool] = useState<Tools>(Tools.Line);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gen = rough.generator();
 
   const createElement = (x1: number, y1: number, x2: number, y2: number): ElementType => {
-    const roughElement = elementType === "line"
+    const roughElement = tool === Tools.Line
       ? gen.line(x1, y1, x2, y2)
       : gen.rectangle(x1, y1, x2 - x1, y2 - y1);
     return { x1, y1, x2, y2, roughElement };
@@ -46,26 +51,36 @@ export default function DrawingTools() {
   }, [elements])
   
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    setDrawing(true);
+    if (tool === Tools.Selection){
+      /*
+         TODO: implement selection
+         if we are on an element
+         setAction("moving"); 
+      */
+
+    } else {
+      setAction("drawing");
     const { clientX, clientY } = event;
     const element = createElement(clientX, clientY, clientX, clientY);
     setElements((prevElements) => [...prevElements, element]);
+    }
   };
   
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!drawing) return;
-    const index = elements.length - 1;
-    const { clientX, clientY } = event;
-    const {x1, y1} = elements[index];
-    const updatedElement = createElement(x1, y1, clientX, clientY);
+    if (action === "drawing") {
+      const index = elements.length - 1;
+      const { clientX, clientY } = event;
+      const { x1, y1 } = elements[index];
+      const updateElement = createElement(x1, y1, clientX, clientY);
 
-    const elementCopy = [...elements];
-    elementCopy[index] = updatedElement;
-    setElements(elementCopy);
+      const elementsCopy = [...elements];
+      elementsCopy[index] = updateElement;
+      setElements(elementsCopy);
+    }
   };
 
   const handleMouseUp = () => {
-    setDrawing(false);
+    setAction("none");
   }
   
 
@@ -77,10 +92,19 @@ export default function DrawingTools() {
         </button>
         <input
           type="radio"
+          name="selection"
+          id="selection"
+          checked={tool === Tools.Selection}
+          onChange={() => setTool(Tools.Selection)}
+        />
+        <label htmlFor="selection">selection</label>
+
+        <input
+          type="radio"
           name="line"
           id="line"
-          checked={elementType === "line"}
-          onChange={() => setElementType("line")}
+          checked={tool === Tools.Line}
+          onChange={() => setTool(Tools.Line)}
         />
         <label htmlFor="line">line</label>
 
@@ -88,8 +112,8 @@ export default function DrawingTools() {
           type="radio"
           name="rectangle"
           id="rectangle"
-          checked={elementType === "rectangle"}
-          onChange={() => setElementType("rectangle")}
+          checked={tool === Tools.Rectangle}
+          onChange={() => setTool(Tools.Rectangle)}
         />
 
         <label htmlFor="rectangle">rectangle</label>
