@@ -3,6 +3,19 @@
 import { useHistory } from "@/hooks/useHistory";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import rough from "roughjs"
+import getStroke from "perfect-freehand";
+
+type SelectedElementType = ElementType & {
+  xOffsets?: number[];
+  yOffsets?: number[];
+  offsetX?: number;
+  offsetY?: number;
+};
+
+interface ExtendedElementType extends ElementType {
+  xOffsets?: number[];
+  yOffsets?: number[];
+}
 
 export type ElementType = {
   id: number;
@@ -15,9 +28,11 @@ export type ElementType = {
   offsetX?: number;
   offsetY?: number;
   position?: string | null;
+  points?: { x: number; y: number }[];
 }
 
 enum Tools {
+  Pencil = "pencil",
   Selection = "selection",
   Line = "line",
   Rectangle = "rectangle",
@@ -94,16 +109,39 @@ export default function DrawingTools() {
   }
 
   const createElement = (id:number, x1: number, y1: number, x2: number, y2: number, type: Tools): ElementType => {
-    const roughElement = type === Tools.Line
-      ? gen.line(x1, y1, x2, y2)
-      : gen.rectangle(x1, y1, x2 - x1, y2 - y1);
-    return { id, x1, y1, x2, y2, type, roughElement };
-  }
+    switch (type) {
+      case Tools.Line:
+        case Tools.Rectangle: {
+          const roughElement =
+          type === Tools.Line
+            ? gen.line(x1, y1, x2, y2)
+            : gen.rectangle(x1, y1, x2 - x1, y2 - y1);
+        return { id, x1, y1, x2, y2, type, roughElement };
+      }
+        case Tools.Pencil: {
+          const defaultRoughElement = null;
+          return {
+            id,
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+            type,
+            points: [{ x: x1, y: y1 }],
+            roughElement: defaultRoughElement,
+          };
+        }
+        default: 
+           throw new Error(`Type not recognized ${type}`);
+        }
+    }
+  
 
   type Point = {x: number, y: number}
 
   const distance = (a: Point, b: Point) =>
     Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+
 
   const nearPoint = (
     x: number,
@@ -115,27 +153,53 @@ export default function DrawingTools() {
     return Math.abs(x-x1) < 5 && Math.abs(y-y1) < 5 ? name : null;
   }
 
-  const positionWithinElement = (x: number, y: number, element: ElementType) => {
-    const { type, x1, y1, x2, y2 } = element;
+  const onLine = (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    x: number,
+    y: number,
+    maxDistance: number = 1
+  ): string | null => {
+    const a: Point = { x: x1, y: y1 };
+    const b: Point = { x: x2, y: y2 };
+    const c: Point = { x, y };
+    const offset = distance(a, b) - (distance(a, c) + distance(b, c));
+    return Math.abs(offset) < maxDistance ? "inside" : null;
+  };
 
-    if (type === Tools.Rectangle) {
-      const topLeft = nearPoint(x, y, x1, y1, "topLeft")
-      const topRight = nearPoint(x, y, x2, y1, "topRight")
-      const bottomLeft = nearPoint(x, y, x1, y2, "bottomLeft")
-      const bottomRight = nearPoint(x, y, x2, y2, "bottomRight")
-      const inside = x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
-      return topLeft || topRight || bottomLeft || bottomRight || inside
-    } else {
-      const a = { x: x1, y: y1 };
-      const b = { x: x2, y: y2 };
-      const c = { x, y };
-      const offset = distance(a, b) - (distance(a, c) + distance(b, c));
+  const positionWithinElement = (x: number, y: number, element: ElementType) => {
+    const { type, x1, x2, y1, y2 } = element;
+    switch (type) {
+      case Tools.Line: {
+        const on = onLine(x1, y1, x2, y2, x, y);
         const start = nearPoint(x, y, x1, y1, "start");
         const end = nearPoint(x, y, x2, y2, "end");
-        const inside = Math.abs(offset) < 1 ? "inside" : null;
-        return start || end || inside
-    }
+        return start || end || on;
+      }
+      case Tools.Rectangle: {
+        const topLeft = nearPoint(x, y, x1, y1, "topLeft");
+        const topRight = nearPoint(x, y, x2, y1, "topRight");
+        const bottomLeft = nearPoint(x, y, x1, y2, "bottomLeft");
+        const bottomRight = nearPoint(x, y, x2, y2, "bottomRight");
+        const inside =
+          x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
+        return topLeft || topRight || bottomLeft || bottomRight || inside;
+      }
+      case Tools.Pencil : {
+        const betweenAnyPoint = element.points!.some((point, index) => {
+          const nextPoint = element.points![index + 1];
+          if(!nextPoint) return false;
+          return (
+            onLine(point.x, point.y, nextPoint.x, nextPoint.y, x, y, 5) !== null
+          )
+        });
+        return betweenAnyPoint ? "inside" : null;
+      }
+      default: throw new Error(`Type not recognised ${type}`)
   };
+}
 
   const adjustElementCoordinates = (element: ElementType) => {
     const { type, x1, y1, x2, y2} = element;
@@ -164,6 +228,66 @@ export default function DrawingTools() {
     .find((element) => element.position !== null);
   };
 
+  const getSvgPathFromStroke = (stroke: [number, number][]) => {
+    if (!stroke.length) return "";
+
+    const d = stroke.reduce(
+      (
+        acc: string[],
+        [x0, y0]: [number, number],
+        i: number,
+        arr: [number, number][]
+      ) => {
+        const [x1, y1] = arr[(i + 1) % arr.length];
+        acc.push(
+          x0.toString(),
+          y0.toString(),
+          ((x0 + x1) / 2).toString(),
+          ((y0 + y1) / 2).toString()
+        );
+        return acc;
+      },
+      ["M", ...stroke[0].map((num) => num.toString()), "Q"]
+    );
+
+    d.push("Z");
+    return d.join(" ");
+  };
+
+  const drawElement = (rc: any, context: CanvasRenderingContext2D, element: ElementType) => {
+    switch (element.type) {
+      case Tools.Line: {
+        rc.draw(element.roughElement);
+        break;
+      }
+      case Tools.Rectangle: {
+        rc.draw(element.roughElement);
+        break;
+      }
+      case Tools.Pencil: {
+        if (!element.points) {
+          throw new Error("Points missing in pencil element");
+        }
+        const strokePoints = getStroke(element.points);
+        const formattedPoints: [number, number][] = strokePoints.map(
+          (point) => {
+            if (point.length !== 2)  {
+              throw new Error(
+                `Expected point to have exactly 2 elements, got ${point.length}`
+              );
+            }
+            return [point[0], point[1]];
+          }
+        );
+        const stroke = getSvgPathFromStroke(formattedPoints);
+        context.fill(new Path2D(stroke));
+        break;
+      }
+      default:
+        throw new Error(`Type not recognised ${element.type}`);
+    }
+  }
+
   useEffect(() => {
     if (!canvasRef.current) return;
     if (window) { // Check if window is defined
@@ -179,9 +303,9 @@ export default function DrawingTools() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const rc = rough.canvas(canvas);
     
-    elements.forEach(({ roughElement }) => {
-      rc.draw(roughElement);
-    });
+    elements.forEach((element) => 
+      drawElement(rc, ctx, element)
+    );
   }, [elements]);
 
   useEffect(() => {
@@ -214,21 +338,43 @@ export default function DrawingTools() {
     y2: number, 
     type:Tools
     ) => {
-    const updateElement = createElement(id, x1, y1, x2, y2, type);
-
     const elementsCopy = [...elements];
-      elementsCopy[id] = updateElement;
+      switch (type) {
+        case Tools.Line:
+          case Tools.Rectangle: {
+            elementsCopy[id] = createElement(id, x1, y1, x2, y2, type);
+            break;
+          }
+          case Tools.Pencil: {
+            const existingPoints = elementsCopy[id].points || [];
+            elementsCopy[id].points = [...existingPoints, { x: x2, y: y2 }];
+            break;
+          }
+          default:
+            throw new Error(`Type not recognised ${type}`);
+      }
       setElements(elementsCopy, true);
   }
+
+  const adjustmentRequired = (type: Tools) => ["line", "rectangle"].includes(type);
   
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const { clientX, clientY } = event;
     if (tool === Tools.Selection){
        const element = getElementAtPosition(clientX, clientY, elements);
          if (element){
-          const offsetX = clientX - element.x1;
-          const offsetY = clientY - element.y1;
-          setSelectedElement({ ...element, offsetX, offsetY });
+          let selectedElement: SelectedElementType = { ...element };
+
+          if(element.type === "pencil" && element.points) {
+            const xOffsets = element.points.map((point) => clientX - point.x);
+            const yOffsets = element.points.map((point) => clientY - point.y);
+            selectedElement = { ...element, xOffsets, yOffsets };
+          } else  {
+            const offsetX = clientX - selectedElement.x1;
+            const offsetY = clientY - selectedElement.y1;
+            selectedElement = { ...selectedElement, offsetX, offsetY };
+          }
+           setSelectedElement(selectedElement);
           setElements((prevState) => prevState)
             if(element.position === "inside")
             {
@@ -236,13 +382,12 @@ export default function DrawingTools() {
             } else {
               setAction("resizing");
             }
-           
          }
     } else {
       const id = elements.length;
-      const element = createElement(id, clientX, clientY, clientX, clientY, tool);
-      setElements((prevElements) => [...prevElements, element]);
-      setSelectedElement(element)
+      const newElement = createElement(id, clientX, clientY, clientX, clientY, tool);
+      setElements((prevElements) => [...prevElements, newElement]);
+      setSelectedElement(newElement)
       setAction("drawing")
     }
   };
@@ -263,38 +408,64 @@ export default function DrawingTools() {
         updateElement(index, x1, y1, clientX, clientY, tool);
 
     } else if (action === "moving" && selectedElement) {
-      const {id, x1, x2, y1, y2, type, offsetX, offsetY} = selectedElement;
-         const  safeOffsetX = offsetX ?? 0;
-         const  safeOffsetY = offsetY ?? 0;
-         const newX1 = clientX - safeOffsetX;
-         const newY1 = clientY- safeOffsetY
-         const newX2 = newX1 + (x2 - x1);
-         const newY2 = newY1 + (y2 - y1);
+      if(
+        selectedElement.type === "pencil" 
+        && 
+        "points" in selectedElement && 
+        "xOffsets" in selectedElement && 
+        "yOffsets" in selectedElement
+      ) {
+        const extendedElement = selectedElement as ExtendedElementType;
+        const newPoints = extendedElement.points!.map((_, index) => ({
+          x: clientX - extendedElement.xOffsets![index],
+          y: clientY - extendedElement.yOffsets![index],
+        }));
+        const elementCopy = [...elements];
+        elementCopy[extendedElement.id] = 
+        {
+          ...elementCopy[extendedElement.id],
+            points: newPoints,
+      };
+        setElements(elementCopy, true);
+      } else {
+        const { id, x1, x2, y1, y2, type, offsetX, offsetY } = selectedElement as ExtendedElementType;
+        const safeOffsetX = offsetX ?? 0;
+        const safeOffsetY = offsetY ?? 0;
+        const newX1 = clientX - safeOffsetX;
+        const newY1 = clientY - safeOffsetY;
+        // corrected the error of auto changing coordinates while moving
+        const newX2 = newX1 + (x2 - x1)
+        const newY2 = newY1 + (y2 - y1);
 
-         updateElement(id, newX1, newY1, newX2, newY2, type);
+        updateElement(id, newX1, newY1, newX2, newY2, type);
+      }
     } else if (
         action === "resizing" && 
         selectedElement &&
         selectedElement.position
       ) 
       {
-        const { id, type, position, ...coordinates } = selectedElement;
-           
-        const { x1, y1, x2, y2 } = resizedCoordinates(
-          clientX,
+        const { id, type, position, ...coordinates } = selectedElement as ExtendedElementType;
+
+        if(typeof position === "string") {
+          const { x1, y1, x2, y2 } = resizedCoordinates(
+            clientX,
           clientY,
           position,
           coordinates
-        );
-        updateElement(id, x1, y1, x2, y2, type);
-      };
-
+          );
+          updateElement(id, x1, y1, x2, y2, type);
+        };
+      }
   }
   const handleMouseUp = () => {
     if (selectedElement) {
       const index = selectedElement.id;
       const { id, type } = elements[index];
-      if (action === "drawing" || action === "resizing") {
+      if (
+        (action === "drawing" || action === "resizing") &&
+        adjustmentRequired(type)
+      ) {
         const { x1, y1, x2, y2 } = adjustElementCoordinates(elements[index]);
         updateElement(id, x1, y1, x2, y2, type);
       }
@@ -336,6 +507,15 @@ export default function DrawingTools() {
         />
 
         <label htmlFor="rectangle">rectangle</label>
+        <input
+          type="radio"
+          name="pencil"
+          id="pencil"
+          checked={tool === Tools.Pencil}
+          onChange={() => setTool(Tools.Pencil)}
+        />
+
+        <label htmlFor="pencil">pencil</label>
       </div>
       <div className="fixed z-2 bottom-0 p-10">
         <button onClick={undo}>Undo</button>
@@ -353,3 +533,4 @@ export default function DrawingTools() {
     </div>
   );
 } 
+
