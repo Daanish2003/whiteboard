@@ -1,7 +1,7 @@
 "use client"
 
 import { useHistory } from "@/hooks/useHistory";
-import { useEffect, useLayoutEffect, useRef, useState, MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import rough from "roughjs"
 import getStroke from "perfect-freehand";
 
@@ -24,19 +24,17 @@ export type ElementType = {
   x2: number;
   y2: number;
   type: Tools;
-  roughElement?: any;
+  roughElement: any;
   offsetX?: number;
   offsetY?: number;
   position?: string | null;
   points?: { x: number; y: number }[];
-  text?: string;
 }
 
 enum Tools {
   Pencil = "pencil",
   Selection = "selection",
   Line = "line",
-  Text = "text",
   Rectangle = "rectangle",
   Ellipse = "ellipse",
 }
@@ -44,11 +42,10 @@ enum Tools {
 export default function DrawingTools() {
   const {elements, setElements, undo, redo} = useHistory([]);
   const [action, setAction] = useState("none");
-  const [tool, setTool] = useState<Tools>(Tools.Text);
+  const [tool, setTool] = useState<Tools>(Tools.Line);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedElement, setSelectedElement]  = useState<ElementType | null>();
   const gen = rough.generator();
-  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   const cursorForPosition = (position: string) => {
     switch (position) {
@@ -134,8 +131,6 @@ export default function DrawingTools() {
             roughElement: defaultRoughElement,
           };
         }
-        case Tools.Text: 
-         return { id, type, x1, y1, x2, y2, text: "" };
         default: 
            throw new Error(`Type not recognized ${type}`);
         }
@@ -202,8 +197,6 @@ export default function DrawingTools() {
         });
         return betweenAnyPoint ? "inside" : null;
       }
-      case Tools.Text: 
-        return x >= x1 && x <= x2 && y >= y1 && y <= y2 ? "inside" : null;
       default: throw new Error(`Type not recognised ${type}`)
   };
 }
@@ -290,13 +283,6 @@ export default function DrawingTools() {
         context.fill(new Path2D(stroke));
         break;
       }
-      case "text": {
-        context.textBaseline = "top";
-        context.font = "20px sans-serif";
-        const text = element.text || "";
-        context.fillText(text, element.x1, element.y1);
-        break;
-      }
       default:
         throw new Error(`Type not recognised ${element.type}`);
     }
@@ -317,16 +303,10 @@ export default function DrawingTools() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const rc = rough.canvas(canvas);
     
-    elements.forEach((element) => {
-      if (
-        action === "writing" &&
-        selectedElement &&
-        selectedElement.id === element.id
-      )
-        return;
-      drawElement(rc, ctx, element);
-    });
-  }, [elements, action, selectedElement]);
+    elements.forEach((element) => 
+      drawElement(rc, ctx, element)
+    );
+  }, [elements]);
 
   useEffect(() => {
     const undoRedoFunction = (event: KeyboardEvent) => {
@@ -350,24 +330,13 @@ export default function DrawingTools() {
     };
   }, [undo, redo]);
 
-  useEffect(() => {
-    const textArea = textAreaRef.current;
-    if (action === "writing" && textArea && selectedElement) {
-      setTimeout(() => {
-        textArea.focus();
-        textArea.value = selectedElement.text || "";
-      }, 0);
-    }
-  }, [action, selectedElement])
-
   const updateElement = (
     id: number, 
     x1: number, 
     y1: number, 
     x2: number, 
     y2: number, 
-    type: Tools,
-    option?: { text: string}
+    type:Tools
     ) => {
     const elementsCopy = [...elements];
       switch (type) {
@@ -381,27 +350,6 @@ export default function DrawingTools() {
             elementsCopy[id].points = [...existingPoints, { x: x2, y: y2 }];
             break;
           }
-          case Tools.Text: {
-            const canvas = document.getElementById('canvas');
-               if(!(canvas instanceof HTMLCanvasElement)) {
-                  throw new Error("Canvas not found");
-               }
-               const context = canvas.getContext("2d");
-               if(!context) {
-                  throw new Error("Context not found");
-               }
-               if(!option) {
-                  throw new Error("Option not found");
-               }
-
-               const textWidth = context.measureText(option.text).width;
-                 const textHeight = 24;
-                 elementsCopy[id] = {
-                  ...createElement(id, x1, y1, x1 + textWidth, y1 + textHeight, type),
-                  text: option.text,
-                 };
-                  break;
-          }
           default:
             throw new Error(`Type not recognised ${type}`);
       }
@@ -411,7 +359,6 @@ export default function DrawingTools() {
   const adjustmentRequired = (type: Tools) => ["line", "rectangle"].includes(type);
   
   const handleMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if(action === "writing") return;
     const { clientX, clientY } = event;
     if (tool === Tools.Selection){
        const element = getElementAtPosition(clientX, clientY, elements);
@@ -441,7 +388,7 @@ export default function DrawingTools() {
       const newElement = createElement(id, clientX, clientY, clientX, clientY, tool);
       setElements((prevElements) => [...prevElements, newElement]);
       setSelectedElement(newElement)
-      setAction(tool === "text" ?  "writing" : "drawing")
+      setAction("drawing")
     }
   };
   
@@ -489,8 +436,8 @@ export default function DrawingTools() {
         // corrected the error of auto changing coordinates while moving
         const newX2 = newX1 + (x2 - x1)
         const newY2 = newY1 + (y2 - y1);
-        const options = type === "text" && selectedElement.text ? { text: selectedElement.text } : undefined;
-        updateElement(id, newX1, newY1, newX2, newY2, type, options);
+
+        updateElement(id, newX1, newY1, newX2, newY2, type);
       }
     } else if (
         action === "resizing" && 
@@ -502,7 +449,7 @@ export default function DrawingTools() {
 
         if(typeof position === "string") {
           const { x1, y1, x2, y2 } = resizedCoordinates(
-          clientX,
+            clientX,
           clientY,
           position,
           coordinates
@@ -511,8 +458,7 @@ export default function DrawingTools() {
         };
       }
   }
-  const handleMouseUp = (event: MouseEvent<HTMLCanvasElement>) => {
-    const { clientX, clientY } = event;
+  const handleMouseUp = () => {
     if (selectedElement) {
       const index = selectedElement.id;
       const { id, type } = elements[index];
@@ -523,37 +469,8 @@ export default function DrawingTools() {
         const { x1, y1, x2, y2 } = adjustElementCoordinates(elements[index]);
         updateElement(id, x1, y1, x2, y2, type);
       }
-
-      const offsetX = selectedElement.offsetX || 0;
-      const offsetY = selectedElement.offsetY || 0;
-      if (
-        selectedElement.type === "text" && clientX - offsetX === selectedElement.x1 && clientY - offsetY === selectedElement.y1
-      )
-      {
-        setAction("writing");
-        return;
-      }
-    }
-    if (action === "writing") {
-      return;
     }
     setAction("none");
-    setSelectedElement(null);
-  };
-
-  const handleBlur = (event: React.FocusEvent<HTMLTextAreaElement>) => {
-    if (selectedElement) {
-      const { id, x1, y1, type} = selectedElement;
-
-      const x2 = selectedElement.x2 || x1;
-      const y2 = selectedElement.y2 || y1;
-
-      setAction("none"); 
-      setSelectedElement(null);
-      updateElement(id, x1, y1, x2, y2, type, { text: event.target.value });
-    } else {
-      console.error("No element selected when handleBlur was called");
-    }
   }
   
 
@@ -599,48 +516,11 @@ export default function DrawingTools() {
         />
 
         <label htmlFor="pencil">pencil</label>
-        <input
-          type="radio"
-          name="text"
-          id="text"
-          checked={tool === Tools.Text}
-          onChange={() => setTool(Tools.Text)}
-        />
-
-        <label htmlFor="text">text</label>
       </div>
       <div className="fixed z-2 bottom-0 p-10">
         <button onClick={undo}>Undo</button>
         <button onClick={redo}>Redo</button>
       </div>
-      {action === "writing" ? (
-        <textarea
-          ref={textAreaRef}
-          name="text"
-          id="text"
-          style={{
-            position: "fixed",
-            top:
-              selectedElement && selectedElement.y1 !== undefined
-                ? `${selectedElement.y1 - 2}px`
-                : "0",
-            left:
-              selectedElement && selectedElement.x1 !== undefined
-                ? `${selectedElement.x1}px`
-                : "0",
-            font: "24px sans-serif",
-            margin: 0,
-            padding: 0,
-            border: 0,
-            outline: "none",
-            overflow: "hidden",
-            whiteSpace: "pre",
-            background: "transparent",
-            zIndex: 2,
-          }}
-          onBlur={handleBlur}
-        />
-      ) : null}
       <canvas
         ref={canvasRef}
         id="canvas"
